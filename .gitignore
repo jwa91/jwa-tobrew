@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Build artifacts
+/bin/
+/dist/
+/jwa-tobrew
+
+# Real .env files are forbidden — only .env.template (1P references) is checked in
+.env
+.env.local
+.env.*.local

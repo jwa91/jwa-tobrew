@@ -12,6 +12,37 @@ for entries up to and including that version.
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-05-13
+
+### Fixed
+
+- **macOS Gatekeeper now passes** on first run of `jwa-tobrew` after
+  `brew install --cask jwa91/tap/jwa-tobrew`. v0.4.0's cask shipped
+  unsigned binaries which Tahoe Gatekeeper blocks with "Apple could not
+  verify jwa-tobrew is free of malware". This release codesigns each
+  darwin binary with Developer ID + hardened runtime + secure timestamp
+  (via `scripts/codesign.sh`, invoked as a goreleaser
+  `builds.hooks.post` step) and submits each codesigned binary to
+  `xcrun notarytool` (via `scripts/notarize-darwin.sh`, invoked by the
+  Makefile release target). The published archive is byte-identical
+  pre/post notarization — Apple records the binary's CDHash so the
+  Gatekeeper online check passes at install time.
+
+### Changed
+
+- **CI release workflow** (`.github/workflows/release.yml`) is now
+  `workflow_dispatch`-only. Tag pushes no longer trigger an automatic
+  release because CI does not yet have signing credentials (would
+  ship unsigned binaries, which is exactly what 0.4.0 did). The
+  canonical release path is `make release VERSION=X.Y.Z` locally,
+  with 1Password signed in and the `notarytool` keychain profile set
+  up. Adding the Developer ID .p12 + App Store Connect API key to
+  GitHub secrets unblocks CI later.
+- **`.env.template`** gains `MACOS_SIGN_IDENTITY` (resolves the
+  `make-dmg-identity` 1Password item shared with `trnscrb`).
+- **Makefile `release`** preflight now also checks for the
+  `notarytool` keychain profile and bails early if missing.
+
 ## [0.4.0] — 2026-05-13
 
 ### Changed
@@ -45,5 +76,6 @@ for entries up to and including that version.
 
 See [homebrew-tap CHANGELOG v0.3.0](https://github.com/jwa91/homebrew-tap/blob/main/CHANGELOG.md) for the entry.
 
-[Unreleased]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jwa91/jwa-tobrew/releases/tag/v0.4.0

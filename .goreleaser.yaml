@@ -19,6 +19,11 @@ builds:
       - -X main.version={{ .Version }}
       - -X main.commit={{ .ShortCommit }}
       - -X main.date={{ .Date }}
+    hooks:
+      # Codesign darwin binaries with Developer ID + hardened runtime.
+      # No-op on linux and when MACOS_SIGN_IDENTITY is unset (CI).
+      post:
+        - cmd: 'scripts/codesign.sh "{{ .Target }}" "{{ .Path }}"'
 
 archives:
   - id: default

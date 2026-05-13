@@ -17,17 +17,26 @@ check:
 	go vet ./...
 	go test ./...
 
-# Local release. CI handles tag pushes automatically; this target is
-# only for ad-hoc local cuts. Requires 1Password signed in and the
-# v$(VERSION) tag already pointing at HEAD.
+# Local release. CI is disabled (workflow_dispatch only) until signing
+# creds are in CI; until then every release runs locally. Requires
+# 1Password signed in, the v$(VERSION) tag at HEAD, and a keychain
+# profile named "notarytool" (xcrun notarytool store-credentials).
 release:
 	@test -n "$(VERSION)" || (echo "usage: make release VERSION=X.Y.Z" && exit 2)
 	@op whoami >/dev/null || (echo "1Password not signed in: eval \$$(op signin)" && exit 1)
+	@xcrun notarytool history --keychain-profile notarytool >/dev/null 2>&1 || \
+	  (echo "keychain profile 'notarytool' missing — see scripts/notarize-darwin.sh header"; exit 1)
 	@existing=$$(git rev-parse -q --verify "v$(VERSION)^{commit}" 2>/dev/null); \
 	head=$$(git rev-parse HEAD); \
 	test -n "$$existing" && test "$$existing" = "$$head" || \
 	  (echo "v$(VERSION) must exist and point at HEAD before release"; exit 3)
+	# Build + codesign + archive + publish + commit Cask back to the tap.
+	# Codesign happens inside goreleaser's builds.hooks.post.
 	jwa-harden run -- goreleaser release --clean
+	# Submit each codesigned darwin binary to notarytool. The published
+	# archive is byte-identical pre/post — Apple records the binary's
+	# CDHash so Gatekeeper online-check passes on first install.
+	scripts/notarize-darwin.sh jwa-tobrew $(VERSION)
 
 clean:
 	rm -rf bin dist

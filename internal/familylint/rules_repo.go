@@ -348,6 +348,12 @@ func init() {
 			if strings.HasPrefix(origin, "git@") || strings.HasPrefix(origin, "ssh://") {
 				return Pass()
 			}
+			// GitHub Actions checkout configures an HTTPS remote by default.
+			// Keep local enforcement strict while allowing CI's managed origin.
+			if (os.Getenv("CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true") &&
+				strings.HasPrefix(origin, "https://github.com/") {
+				return Pass()
+			}
 			return Fail("origin is "+origin+" (not SSH)",
 				"git remote set-url origin git@github.com:jwa91/"+c.RepoName+".git")
 		},

@@ -30,6 +30,8 @@ for entries up to and including that version.
   install hint for `brew install jwa91/tap/agentskills`.
 - **Generated release guidance now refers to Go CLI Casks** (`Casks/*.rb`)
   instead of stale Formula paths.
+- Added a dedicated CI workflow (`make check`) and a release `verify` job
+  gate so publish runs only after checks pass.
 
 ## [0.4.2] — 2026-05-13
 

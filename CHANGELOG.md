@@ -12,12 +12,35 @@ for entries up to and including that version.
 
 ## [Unreleased]
 
+### Added
+
+- Documented `jwa-tobrew lint` repo-kind policy packs and the provisional
+  naming boundary between `jwa-harden` and `jwa-tobrew`.
+- Added regression coverage for JSON lint output, repo-kind rule selection,
+  and non-Go scaffold output.
+- Added a dedicated CI workflow (`make check`) and a release `verify` job
+  gate so publish runs only after checks pass.
+- Added `jwa-tobrew completion <bash|zsh|fish>` and generated completion
+  coverage from the same command metadata used by top-level help.
+- Added `scripts/analysis-env.sh` for disposable source-built analysis
+  environments with all CLI binaries on PATH.
+
+### Changed
+
+- Classified `.env.template` as valid when GoReleaser consumes
+  1Password-backed environment variables through `jwa-harden`, even when the
+  `.goreleaser.yaml` file no longer embeds `op://` URIs directly.
+
+## [0.4.4] — 2026-05-13
+
 ### Fixed
 
 - **Gatekeeper popup on fresh cask installs**: notarization is now enforced
   in the GoReleaser build hook (`scripts/codesign.sh`) so releases cut via
   raw `goreleaser release --clean` are notarized as well, not only
   `make release`.
+
+## [0.4.3] — 2026-05-13
 
 ### Changed
 
@@ -30,8 +53,6 @@ for entries up to and including that version.
   install hint for `brew install jwa91/tap/agentskills`.
 - **Generated release guidance now refers to Go CLI Casks** (`Casks/*.rb`)
   instead of stale Formula paths.
-- Added a dedicated CI workflow (`make check`) and a release `verify` job
-  gate so publish runs only after checks pass.
 
 ## [0.4.2] — 2026-05-13
 
@@ -108,7 +129,9 @@ for entries up to and including that version.
 
 See [homebrew-tap CHANGELOG v0.3.0](https://github.com/jwa91/homebrew-tap/blob/main/CHANGELOG.md) for the entry.
 
-[Unreleased]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.3...v0.4.4
+[0.4.3]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jwa91/jwa-tobrew/releases/tag/v0.4.0

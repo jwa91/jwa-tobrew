@@ -19,26 +19,26 @@ import (
 // Fields we deeply assert on are typed; the rest sits in Raw for lookups
 // we'd rather not hard-code yet.
 type Goreleaser struct {
-	Path          string           `yaml:"-"`
-	Version       int              `yaml:"version"`
-	ProjectName   string           `yaml:"project_name"`
+	Path          string            `yaml:"-"`
+	Version       int               `yaml:"version"`
+	ProjectName   string            `yaml:"project_name"`
 	Builds        []GoreleaserBuild `yaml:"builds"`
-	Brews         []map[string]any `yaml:"brews"` // any presence is a fail (deprecated)
-	HomebrewCasks []GoreleaserCask `yaml:"homebrew_casks"`
+	Brews         []map[string]any  `yaml:"brews"` // any presence is a fail (deprecated)
+	HomebrewCasks []GoreleaserCask  `yaml:"homebrew_casks"`
 	Release       GoreleaserRelease `yaml:"release"`
-	Raw           map[string]any   `yaml:"-"`
+	Raw           map[string]any    `yaml:"-"`
 }
 
 // GoreleaserBuild is one entry under builds:.
 type GoreleaserBuild struct {
-	ID      string             `yaml:"id"`
-	Main    string             `yaml:"main"`
-	Binary  string             `yaml:"binary"`
-	Goos    []string           `yaml:"goos"`
-	Goarch  []string           `yaml:"goarch"`
-	Env     []string           `yaml:"env"`
-	Ldflags []string           `yaml:"ldflags"`
-	Hooks   GoreleaserHooks    `yaml:"hooks"`
+	ID      string          `yaml:"id"`
+	Main    string          `yaml:"main"`
+	Binary  string          `yaml:"binary"`
+	Goos    []string        `yaml:"goos"`
+	Goarch  []string        `yaml:"goarch"`
+	Env     []string        `yaml:"env"`
+	Ldflags []string        `yaml:"ldflags"`
+	Hooks   GoreleaserHooks `yaml:"hooks"`
 }
 
 // GoreleaserHooks holds build-stage pre/post hooks.
@@ -72,14 +72,14 @@ func (h *GoreleaserHook) UnmarshalYAML(node *yaml.Node) error {
 
 // GoreleaserCask is one homebrew_casks entry.
 type GoreleaserCask struct {
-	Name        string          `yaml:"name"`
-	Description string          `yaml:"description"`
-	Homepage    string          `yaml:"homepage"`
-	License     string          `yaml:"license"`
-	Directory   string          `yaml:"directory"`
-	Binaries    []string        `yaml:"binaries"` // plural, modern
-	Binary      string          `yaml:"binary"`   // singular, deprecated — flag if present
-	Repository  GoreleaserRepo  `yaml:"repository"`
+	Name         string          `yaml:"name"`
+	Description  string          `yaml:"description"`
+	Homepage     string          `yaml:"homepage"`
+	License      string          `yaml:"license"`
+	Directory    string          `yaml:"directory"`
+	Binaries     []string        `yaml:"binaries"` // plural, modern
+	Binary       string          `yaml:"binary"`   // singular, deprecated — flag if present
+	Repository   GoreleaserRepo  `yaml:"repository"`
 	Dependencies []GoreleaserDep `yaml:"dependencies"`
 }
 
@@ -141,15 +141,15 @@ func (c *Context) Goreleaser() (*Goreleaser, error) {
 // Changelog is a light parse of Keep-a-Changelog files. Sections is in
 // document order: the [Unreleased] entry (if present) is at index 0.
 type Changelog struct {
-	Path        string
-	HasHeader   bool             // line 1 (skipping blanks) is "# Changelog"
-	Sections    []ChangelogSection
+	Path      string
+	HasHeader bool // line 1 (skipping blanks) is "# Changelog"
+	Sections  []ChangelogSection
 }
 
 // ChangelogSection is one ## [version] entry.
 type ChangelogSection struct {
-	Version    string   // e.g. "Unreleased", "0.4.2"
-	Date       string   // raw date string (or "")
+	Version     string   // e.g. "Unreleased", "0.4.2"
+	Date        string   // raw date string (or "")
 	Subsections []string // ordered list of H3 names ("Added", "Changed", ...)
 }
 

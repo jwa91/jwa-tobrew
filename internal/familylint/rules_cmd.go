@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// versionLineRE matches "<name> <semver> (commit <sha>, built <date>)".
-// Permissive on whitespace and on the version (-prerelease suffix allowed).
+// versionLineRE matches "<name> <semver|dev> (commit <sha>, built <date>)".
+// Local builds report dev; released builds report SemVer.
 var versionLineRE = regexp.MustCompile(
-	`^\S+\s+\d+\.\d+\.\d+\S*\s+\(commit\s+\S+,\s+built\s+\S+\)\s*$`,
+	`^\S+\s+(?:dev|\d+\.\d+\.\d+\S*)\s+\(commit\s+\S+,\s+built\s+\S+\)\s*$`,
 )
 
 func init() {
@@ -17,7 +17,7 @@ func init() {
 		ID:          "F-cmd-001",
 		Layer:       LayerCmd,
 		Severity:    SeverityFail,
-		Description: `"<cli> version" prints "<name> <semver> (commit <sha>, built <date>)"`,
+		Description: `"<cli> version" prints "<name> <semver|dev> (commit <sha>, built <date>)"`,
 		Check: func(c *Context) Result {
 			if c.BinaryPath == "" {
 				return Skip("no BinaryPath in Context")
@@ -38,7 +38,7 @@ func init() {
 			}
 			if !versionLineRE.MatchString(line) {
 				return Fail("version output doesn't match contract: "+line,
-					`expected: "<name> X.Y.Z (commit <sha>, built <iso-date>)"`)
+					`expected: "<name> X.Y.Z (commit <sha>, built <iso-date>)" or dev during local builds`)
 			}
 			return Pass()
 		},
@@ -101,10 +101,13 @@ func init() {
 		ID:          "F-cmd-004",
 		Layer:       LayerCmd,
 		Severity:    SeverityFail,
-		Description: `"<cli> align" subcommand exists`,
+		Description: `"jwa-tobrew align" owns repo convention alignment`,
 		Check: func(c *Context) Result {
 			if c.BinaryPath == "" {
 				return Skip("no BinaryPath in Context")
+			}
+			if c.RepoName != "jwa-tobrew" {
+				return Skip("align is intentionally scoped to jwa-tobrew")
 			}
 			out := c.RunBinary("align")
 			if out.ExecErr != nil {
@@ -175,32 +178,47 @@ func init() {
 	})
 }
 
-// discoverSubcommands runs `<cli> --help` and extracts subcommand names from
-// a "Commands:" section, if present. Falls back to scraping any leading-token
-// pattern that looks like a subcommand. Returns empty when nothing recognisable
-// is in the help text — F-cmd-006 then Skips rather than fails.
+// discoverSubcommands runs `<cli> --help` and extracts subcommand names from a
+// Commands section. It deliberately avoids scraping the whole help output:
+// usage lines and examples often start with the binary name, which creates
+// false command names and noisy failures.
 func discoverSubcommands(c *Context) []string {
 	out := c.RunBinary("--help")
 	if out.ExecErr != nil || out.Exit != 0 {
 		return nil
 	}
 	body := out.Stdout
-	// Try to find "Commands:" section and parse the following indented lines.
 	idx := strings.Index(body, "Commands:")
 	if idx < 0 {
 		idx = strings.Index(body, "Available commands:")
 	}
-	var slice string
-	if idx >= 0 {
-		slice = body[idx:]
-	} else {
-		slice = body
+	if idx < 0 {
+		return nil
 	}
-	subRE := regexp.MustCompile(`(?m)^\s{2,}([a-z][a-z0-9_-]+)\b`)
-	matches := subRE.FindAllStringSubmatch(slice, -1)
+
+	var commandLines []string
+	for _, line := range strings.Split(body[idx:], "\n")[1:] {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if len(commandLines) > 0 {
+				break
+			}
+			continue
+		}
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			break
+		}
+		commandLines = append(commandLines, line)
+	}
+
+	subRE := regexp.MustCompile(`^\s+([a-z][a-z0-9_-]+)\b`)
 	seen := map[string]struct{}{}
 	var out2 []string
-	for _, m := range matches {
+	for _, line := range commandLines {
+		m := subRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
 		name := m[1]
 		switch name {
 		case "help", "version": // these are special-cased elsewhere

@@ -39,12 +39,16 @@ func (f *repoFixture) write(rel, body string) {
 	}
 }
 
-// chmod sets file mode on a path relative to the fixture root.
-func (f *repoFixture) chmod(rel string, mode os.FileMode) {
+func (f *repoFixture) writeExecutable(rel, body string) string {
 	f.t.Helper()
-	if err := os.Chmod(filepath.Join(f.root, rel), mode); err != nil {
-		f.t.Fatalf("chmod %s: %v", rel, err)
+	abs := filepath.Join(f.root, rel)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		f.t.Fatalf("mkdir %s: %v", filepath.Dir(abs), err)
 	}
+	if err := os.WriteFile(abs, []byte(body), 0o755); err != nil {
+		f.t.Fatalf("write %s: %v", abs, err)
+	}
+	return abs
 }
 
 // ctx builds a fresh Context against the current state of the fixture.

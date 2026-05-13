@@ -16,19 +16,18 @@ func init() {
 		Severity:    SeverityFail,
 		Description: `Exit 0 means success`,
 		Check: func(c *Context) Result {
-			// Transitively verified by every other cmd-layer rule that
-			// expects exit 0 on the happy path.
-			return Skip("convention; verified transitively by F-cmd-001/002/003/004")
-		},
-	})
-
-	Register(Rule{
-		ID:          "F-io-002",
-		Layer:       LayerIO,
-		Severity:    SeverityFail,
-		Description: `Exit 1 means runtime failure (operation tried, didn't succeed)`,
-		Check: func(c *Context) Result {
-			return Skip("cannot synthesise a runtime failure without subcommand-specific knowledge")
+			if c.BinaryPath == "" {
+				return Skip("no BinaryPath in Context")
+			}
+			out := c.RunBinary("version")
+			if out.ExecErr != nil {
+				return Fail("could not execute binary: "+out.ExecErr.Error(), "")
+			}
+			if out.Exit != 0 {
+				return Fail("successful version command exited non-zero",
+					"successful commands must exit 0")
+			}
+			return Pass()
 		},
 	})
 
@@ -38,17 +37,15 @@ func init() {
 		Severity:    SeverityFail,
 		Description: `Exit 2 means usage error (unknown subcommand, bad flag)`,
 		Check: func(c *Context) Result {
-			return Skip("covered by F-cmd-005")
-		},
-	})
-
-	Register(Rule{
-		ID:          "F-io-004",
-		Layer:       LayerIO,
-		Severity:    SeverityFail,
-		Description: `Exit 3 means environment / dependency failure`,
-		Check: func(c *Context) Result {
-			return Skip("requires forcing a missing-dep state; covered by manual doctor invocation")
+			if c.BinaryPath == "" {
+				return Skip("no BinaryPath in Context")
+			}
+			out := c.RunBinary("__definitely_not_a_real_subcommand_xyz__")
+			if out.Exit != 2 {
+				return Fail("unknown subcommand did not exit 2",
+					"usage errors must exit 2")
+			}
+			return Pass()
 		},
 	})
 
@@ -56,9 +53,31 @@ func init() {
 		ID:          "F-io-005",
 		Layer:       LayerIO,
 		Severity:    SeverityFail,
-		Description: `Exit 4 means drift / lint failure (align)`,
+		Description: `Exit 4 is reserved for lint/alignment drift when a lint command exists`,
 		Check: func(c *Context) Result {
-			return Skip("requires a known-drifting repo to exercise")
+			if c.BinaryPath == "" {
+				return Skip("no BinaryPath in Context")
+			}
+			subs := discoverSubcommands(c)
+			hasLint := false
+			for _, sub := range subs {
+				if sub == "lint" {
+					hasLint = true
+					break
+				}
+			}
+			if !hasLint {
+				return Skip("lint subcommand not advertised by this CLI")
+			}
+			out := c.RunBinary("lint", "--unknown-flag")
+			if out.ExecErr != nil {
+				return Skip("lint subcommand not executable: " + out.ExecErr.Error())
+			}
+			if out.Exit != 2 {
+				return Fail("bad lint flag did not exit 2",
+					"lint failures reserve exit 4; usage errors still exit 2")
+			}
+			return Pass()
 		},
 	})
 

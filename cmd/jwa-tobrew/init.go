@@ -12,7 +12,7 @@ import (
 
 func runInit(args []string) error {
 	fs := subFlagSet("init", "scaffold release config in the current project")
-	kind := fs.String("kind", "", "project kind: go | cask | formula (auto-detected if omitted)")
+	kind := fs.String("kind", "", "project kind: go | swift-cask | cask | formula | vps (auto-detected if omitted)")
 	name := fs.String("name", "", "tap artifact name (defaults to repo name)")
 	desc := fs.String("desc", "", "one-line description for the tap entry")
 	force := fs.Bool("force", false, "overwrite existing files")
@@ -42,10 +42,10 @@ func runInit(args []string) error {
 	}
 
 	switch *kind {
-	case "go", "cask", "formula":
+	case "go", "swift-cask", "cask", "formula", "vps":
 		return scaffold(*kind, cwd, owner, repo, *name, *desc, *force)
 	default:
-		return errors.New("could not auto-detect project kind — pass --kind=go|cask|formula")
+		return errors.New("could not auto-detect project kind — pass --kind=go|swift-cask|cask|formula|vps")
 	}
 }
 
@@ -55,11 +55,14 @@ func detectKind(dir string) string {
 	}
 	for _, pat := range []string{"*.xcodeproj", "*.xcworkspace"} {
 		if m, _ := filepath.Glob(filepath.Join(dir, pat)); len(m) > 0 {
-			return "cask"
+			return "swift-cask"
 		}
 	}
 	if exists(filepath.Join(dir, "Package.swift")) {
-		return "cask"
+		return "swift-cask"
+	}
+	if exists(filepath.Join(dir, "docker-compose.yml")) || exists(filepath.Join(dir, "compose.yml")) {
+		return "vps"
 	}
 	return ""
 }
@@ -73,12 +76,13 @@ func detectKind(dir string) string {
 // because they aren't built by GoReleaser; the script wraps
 // `jwa-tobrew release` with the right --kind/--name flags.
 func scaffold(kind, dir, owner, repo, name, desc string, force bool) error {
+	releaseKind := tapReleaseKind(kind)
 	data := map[string]string{
 		"Owner": owner,
 		"Repo":  repo,
 		"Name":  name,
 		"Desc":  coalesce(desc, "TODO: one-line description"),
-		"Kind":  kind,
+		"Kind":  releaseKind,
 	}
 
 	switch kind {
@@ -86,12 +90,15 @@ func scaffold(kind, dir, owner, repo, name, desc string, force bool) error {
 		if err := writeTemplate(filepath.Join(dir, ".goreleaser.yaml"), goreleaserTmpl, data, force); err != nil {
 			return err
 		}
-	case "cask", "formula":
+	case "swift-cask", "cask", "formula":
 		releaseShPath := filepath.Join(dir, "scripts", "release.sh")
 		if err := writeTemplate(releaseShPath, releaseShTmpl, data, force); err != nil {
 			return err
 		}
 		_ = os.Chmod(releaseShPath, 0o755)
+	case "vps":
+		// VPS projects still get the shared agent/security contract, but no
+		// Homebrew release wrapper. A future backend can own deploy manifests.
 	}
 
 	if err := writeAuxiliary(dir, force); err != nil {
@@ -107,16 +114,29 @@ func scaffold(kind, dir, owner, repo, name, desc string, force bool) error {
 	case "cask":
 		ok("scaffolded Cask release config (scripts/release.sh)")
 		hint("usage: jwa-harden run -- ./scripts/release.sh <version> <path/to/artifact.dmg>")
+	case "swift-cask":
+		ok("scaffolded Swift Cask release config (scripts/release.sh)")
+		hint("usage: jwa-harden run -- ./scripts/release.sh <version> <path/to/artifact.dmg>")
 	case "formula":
 		ok("scaffolded Formula release config (scripts/release.sh)")
 		hint("usage: jwa-harden run -- ./scripts/release.sh <version> <path/to/binary-or-tarball>")
+	case "vps":
+		ok("scaffolded VPS agent/security contract")
+		hint("release/deploy backend is intentionally not Homebrew-owned yet")
 	}
 	return nil
 }
 
+func tapReleaseKind(kind string) string {
+	if kind == "swift-cask" {
+		return "cask"
+	}
+	return kind
+}
+
 // writeAuxiliary scaffolds the artifacts needed by every kind: the project's
 // .env.template (op:// references for $GITHUB_TOKEN), gitignore protection,
-// and the canonical release skill owned by agentskills.
+// canonical skills, and a minimal agent contract.
 func writeAuxiliary(dir string, force bool) error {
 	if err := writeEnvTemplate(filepath.Join(dir, ".env.template"), force); err != nil {
 		return err
@@ -124,10 +144,13 @@ func writeAuxiliary(dir string, force bool) error {
 	if err := ensureGitignoreEntry(filepath.Join(dir, ".gitignore"), ".env"); err != nil {
 		return err
 	}
-	if err := runAgentskills("bootstrap", "--project", dir, "--skill", "release", "--mode", "copy", "--force"); err != nil {
+	if err := runAgentskills("bootstrap", "--project", dir, "--skill", "release", "--skill", "jwa-harden", "--mode", "copy", "--force"); err != nil {
 		return err
 	}
 	if err := runAgentskills("link", "--project", dir, "--force"); err != nil {
+		return err
+	}
+	if err := writeAgentContracts(dir, force); err != nil {
 		return err
 	}
 	return nil
@@ -169,6 +192,45 @@ GH_TOKEN=op://Personal/GitHub Homebrew-tap writer/credential
 		return err
 	}
 	return os.WriteFile(path, []byte(body), 0o644)
+}
+
+func writeAgentContracts(dir string, force bool) error {
+	rootContract := `# Agent Contract
+
+This repo uses a small shared agent contract:
+
+- Skills live in .agents/skills and harness folders should link there.
+- Use jwa-harden run -- <command> for commands that need secrets from .env.template.
+- Use jwa-tobrew lint before release-prep changes are considered done.
+- Do not commit real .env files; only .env.template with op:// references is allowed.
+`
+	if err := writeFileIfAllowed(filepath.Join(dir, "AGENTS.md"), []byte(rootContract), force); err != nil {
+		return err
+	}
+
+	cursorRule := `---
+description: Release and secret-handling contract for this repo
+alwaysApply: true
+---
+
+- Skills live in .agents/skills; harness-specific skill folders should be links.
+- Run secret-bearing commands through ` + "`" + `jwa-harden run -- <command>` + "`" + `.
+- Run ` + "`" + `jwa-tobrew lint` + "`" + ` after release scaffolding or policy changes.
+- Never commit real .env files.
+`
+	return writeFileIfAllowed(filepath.Join(dir, ".cursor", "rules", "release-contract.mdc"), []byte(cursorRule), force)
+}
+
+func writeFileIfAllowed(path string, body []byte, force bool) error {
+	if !force {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, body, 0o644)
 }
 
 func ensureGitignoreEntry(path, entry string) error {

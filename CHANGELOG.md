@@ -12,7 +12,18 @@ for entries up to and including that version.
 
 ## [Unreleased]
 
-## [0.4.1] — 2026-05-13
+## [0.4.2] — 2026-05-13
+
+### Fixed
+
+- **Local release uses `gh auth token` for `GITHUB_TOKEN`** instead of the
+  scoped tap-writer PAT, which couldn't create releases on this repo
+  (only on `homebrew-tap`). v0.4.1's release attempt failed with HTTP
+  403 from the GitHub API. The tap-writer PAT remains in `.env.template`
+  as `HOMEBREW_TAP_GITHUB_TOKEN` for the Cask commit step; `GITHUB_TOKEN`
+  is now injected by the Makefile from your gh CLI keyring.
+
+## [0.4.1] — 2026-05-13 (never released)
 
 ### Fixed
 
@@ -76,6 +87,7 @@ for entries up to and including that version.
 
 See [homebrew-tap CHANGELOG v0.3.0](https://github.com/jwa91/homebrew-tap/blob/main/CHANGELOG.md) for the entry.
 
-[Unreleased]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/jwa91/jwa-tobrew/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jwa91/jwa-tobrew/releases/tag/v0.4.0

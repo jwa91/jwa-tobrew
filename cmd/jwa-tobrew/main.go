@@ -1,39 +1,64 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 )
 
-const usage = `jwa-tobrew — release a project to your personal Homebrew tap
+type commandSpec struct {
+	Name    string
+	Args    string
+	Summary string
+}
+
+var commandSpecs = []commandSpec{
+	{Name: "add", Args: "<github-url>", Summary: "Snapshot a published GitHub release into the tap (no token needed)"},
+	{Name: "align", Summary: "Report (or apply) repo drift from current jwa-tobrew conventions"},
+	{Name: "bump", Args: "<name> [ver]", Summary: "Re-sync an existing Cask or Formula to a published GitHub release"},
+	{Name: "completion", Args: "<shell>", Summary: "Generate shell completion for bash, zsh, or fish"},
+	{Name: "config", Summary: "Regenerate tap.toml + tap.local.toml from current tap state"},
+	{Name: "deps", Summary: "Show dependency overview for every item in the tap"},
+	{Name: "doctor", Summary: "Check tools, tap location, SSH origin, and required env"},
+	{Name: "init", Summary: "Scaffold release config in the current project (Go binary or macOS cask)"},
+	{Name: "lint", Summary: "Run the jwa-* family policy lint rules"},
+	{Name: "release", Summary: "Tag, create GitHub release, and update the tap (run inside a project repo)"},
+	{Name: "upgrade", Summary: "Re-install jwa-tobrew via brew"},
+	{Name: "version", Summary: "Print build info"},
+}
+
+func usageText() string {
+	var b strings.Builder
+	b.WriteString(`jwa-tobrew — release a project to your personal Homebrew tap
 
 Usage:
   jwa-tobrew <command> [flags]
 
 Commands:
-  add <github-url>    Snapshot a published GitHub release into the tap (no token needed)
-  align               Report (or apply) drift from current jwa-tobrew conventions
-  bump <name> [ver]   Re-sync an existing Cask or Formula to a published GitHub release
-  config              Regenerate tap.toml + tap.local.toml from current tap state
-  deps                Show dependency overview for every item in the tap
-  doctor              Check tools, tap location, SSH origin, and required env
-  init                Scaffold release config in the current project (Go binary or macOS cask)
-  release             Tag, create GitHub release, and update the tap (run inside a project repo)
-  upgrade             Re-install jwa-tobrew via brew
-
+`)
+	for _, cmd := range commandSpecs {
+		left := cmd.Name
+		if cmd.Args != "" {
+			left += " " + cmd.Args
+		}
+		fmt.Fprintf(&b, "  %-23s %s\n", left, cmd.Summary)
+	}
+	b.WriteString(`
 Run 'jwa-tobrew <command> -h' for command-specific flags.
 
 Secret handling: jwa-tobrew expects $GITHUB_TOKEN in env when it hits the GitHub
 API (release flow). Wrap with: jwa-harden run -- jwa-tobrew <command>
 See ~/dotfiles/docs/security-ground-rules.md for the model.
-`
+`)
+	return b.String()
+}
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+		fmt.Print(usageText())
+		return
 	}
 
 	cmd := os.Args[1]
@@ -47,6 +72,8 @@ func main() {
 		err = runAlign(args)
 	case "bump":
 		err = runBump(args)
+	case "completion":
+		err = runCompletion(args)
 	case "config":
 		err = runConfig(args)
 	case "deps":
@@ -55,6 +82,8 @@ func main() {
 		err = runDoctor(args)
 	case "init":
 		err = runInit(args)
+	case "lint":
+		err = runLint(args)
 	case "release":
 		err = runRelease(args)
 	case "upgrade":
@@ -63,16 +92,28 @@ func main() {
 		fmt.Printf("jwa-tobrew %s (commit %s, built %s)\n", version, commit, date)
 		return
 	case "-h", "--help", "help":
-		fmt.Print(usage)
+		fmt.Print(usageText())
 		return
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %q\n\n%s", cmd, usage)
+		fmt.Fprintf(os.Stderr, "unknown command: %q\n\n%s", cmd, usageText())
 		os.Exit(2)
 	}
 	if err != nil {
+		var exit exitCodeError
+		if errors.As(err, &exit) {
+			os.Exit(exit.code)
+		}
 		fmt.Fprintf(os.Stderr, "%s error: %v\n", cmd, err)
 		os.Exit(1)
 	}
+}
+
+type exitCodeError struct {
+	code int
+}
+
+func (e exitCodeError) Error() string {
+	return fmt.Sprintf("exit %d", e.code)
 }
 
 // Set by GoReleaser via -ldflags.

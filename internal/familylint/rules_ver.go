@@ -62,7 +62,11 @@ func init() {
 				return Skip("version output not in canonical shape (F-cmd-001 catches this)")
 			}
 			gotVer := fields[1]
-			if gotVer != want {
+			if gotVer == "dev" {
+				return Skip("local dev build is not expected to match the latest release tag")
+			}
+			gotBase, _, _ := strings.Cut(gotVer, "+")
+			if gotBase != want {
 				return Fail(fmt.Sprintf("binary reports %s, latest tag is %s", gotVer, tag),
 					"rebuild + reinstall the binary so ldflags pick up the new tag (`make install` or brew upgrade)")
 			}
@@ -91,6 +95,12 @@ func init() {
 			var missing []string
 			for _, s := range cl.Sections {
 				if strings.EqualFold(s.Version, "Unreleased") {
+					continue
+				}
+				if strings.Contains(strings.ToLower(s.Date), "never released") {
+					continue
+				}
+				if strings.Contains(strings.ToLower(s.Date), "historical") {
 					continue
 				}
 				ver := strings.SplitN(s.Version, " ", 2)[0] // strip "(never released)" markers

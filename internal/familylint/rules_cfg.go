@@ -121,17 +121,28 @@ func init() {
 			if err != nil || len(g.Builds) == 0 {
 				return Skip("no builds: block")
 			}
-			joined := strings.Join(g.Builds[0].Ldflags, " ")
-			needs := []string{"version=", "commit=", "date="}
+			joined := strings.ToLower(strings.ReplaceAll(strings.Join(g.Builds[0].Ldflags, " "), " ", ""))
+			needs := map[string][]string{
+				"version": {"version={{.version}}", "current={{.version}}"},
+				"commit":  {"commit={{.shortcommit}}", "commit={{.commit}}"},
+				"date":    {"date={{.date}}"},
+			}
 			var missing []string
-			for _, n := range needs {
-				if !strings.Contains(joined, n) {
-					missing = append(missing, n)
+			for name, patterns := range needs {
+				found := false
+				for _, pattern := range patterns {
+					if strings.Contains(joined, pattern) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					missing = append(missing, name)
 				}
 			}
 			if len(missing) > 0 {
-				return Fail("ldflags missing -X *"+strings.Join(missing, "/* / *")+"*",
-					`include -X "<pkg>.version={{ .Version }}" + commit + date`)
+				return Fail("ldflags missing build metadata target(s): "+strings.Join(missing, ", "),
+					`inject version/current={{ .Version }}, commit={{ .ShortCommit }}, and date={{ .Date }} via -X`)
 			}
 			return Pass()
 		},
@@ -336,11 +347,6 @@ func init() {
 			var unpinned []string
 			for _, m := range usesShaRE.FindAllStringSubmatch(string(body), -1) {
 				action, ref := m[1], m[2]
-				if strings.HasPrefix(action, "./") || strings.HasPrefix(action, "actions/") &&
-					strings.Count(action, "/") == 1 {
-					// First-party Actions org and local actions — still need pinning,
-					// don't special-case.
-				}
 				if len(ref) != 40 || !isHex(ref) {
 					unpinned = append(unpinned, action+"@"+ref)
 				}
@@ -415,9 +421,9 @@ func init() {
 			}
 			s := string(body)
 			needs := map[string]string{
-				"op whoami":            "op whoami",
-				"gh auth":              "gh auth status",
-				"notarytool":           "xcrun notarytool history --keychain-profile notarytool",
+				"op whoami":  "op whoami",
+				"gh auth":    "gh auth status",
+				"notarytool": "xcrun notarytool history --keychain-profile notarytool",
 			}
 			var missing []string
 			for label, marker := range needs {
@@ -437,20 +443,18 @@ func init() {
 		ID:          "F-cfg-031",
 		Layer:       LayerCfg,
 		Severity:    SeverityFail,
-		Description: `Makefile release accepts v$(VERSION) anywhere in HEAD's ancestry (not strictly HEAD)`,
+		Description: `Makefile release requires v$(VERSION) to point at HEAD`,
 		Check: func(c *Context) Result {
 			body, err := c.Makefile()
 			if err != nil {
 				return Skip("no Makefile")
 			}
 			s := string(body)
-			// The strict guard pattern `test "$existing" = "$head"` rejects
-			// merge-commit flows. The relaxed form uses git merge-base / --is-ancestor.
 			if strings.Contains(s, `"$$existing" = "$$head"`) || strings.Contains(s, `"$existing" = "$head"`) {
-				return Fail("release target uses strict tag==HEAD guard",
-					"relax to: `git merge-base --is-ancestor v$(VERSION) HEAD` so PR-merged tags pass")
+				return Pass()
 			}
-			return Pass()
+			return Fail("release target does not prove v$(VERSION) points at HEAD",
+				"guard local releases with `test \"$$existing\" = \"$$head\"` before running goreleaser")
 		},
 	})
 
@@ -535,7 +539,7 @@ func init() {
 	Register(Rule{
 		ID:          "F-cfg-042",
 		Layer:       LayerCfg,
-		Severity:    SeverityFail,
+		Severity:    SeverityWarn,
 		Description: `Most recent versioned CHANGELOG section matches the latest v* git tag`,
 		Check: func(c *Context) Result {
 			cl, err := c.Changelog()
@@ -559,11 +563,9 @@ func init() {
 				if s.Version == tagVer || strings.HasPrefix(s.Version, tagVer+" ") {
 					return Pass()
 				}
-				return Fail(fmt.Sprintf("latest tag=%s but latest CHANGELOG section=[%s]", tag, s.Version),
-					"add a `## ["+tagVer+"]` section, or move the tag to match the latest entry")
+				return Warn(fmt.Sprintf("latest tag=%s but latest CHANGELOG section=[%s]", tag, s.Version))
 			}
-			return Fail("CHANGELOG has no versioned sections, but tag "+tag+" exists",
-				"add a `## ["+tagVer+"]` section describing the release")
+			return Warn("CHANGELOG has no versioned sections, but tag " + tag + " exists")
 		},
 	})
 

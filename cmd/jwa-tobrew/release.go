@@ -27,7 +27,7 @@ func classNameFor(name string) string {
 
 func runRelease(args []string) error {
 	fs := subFlagSet("release", "tag, create GitHub release, and update the tap (run inside a project repo)")
-	kind := fs.String("kind", "", "release kind: go | cask | formula (auto-detected if omitted)")
+	kind := fs.String("kind", "", "release kind: go | swift-cask | cask | formula | vps (auto-detected if omitted)")
 	version := fs.String("version", "", "version to release (e.g. 0.5.0). Required for non-Go kinds")
 	asset := fs.String("asset", "", "path to the artifact to upload (required for cask/formula)")
 	name := fs.String("name", "", "tap artifact name (defaults to repo name)")
@@ -66,13 +66,18 @@ func runRelease(args []string) error {
 	switch *kind {
 	case "go":
 		return releaseGo(c, cwd, *version, *push)
+	case "swift-cask":
+		*kind = "cask"
+		fallthrough
 	case "cask", "formula":
 		if *version == "" || *asset == "" {
 			return fmt.Errorf("--version and --asset are required for kind=%s", *kind)
 		}
 		return releaseBinary(c, cwd, owner, repo, *kind, *name, *version, *asset, *desc, *push)
+	case "vps":
+		return errors.New("kind=vps is scaffold-only for now; add a deploy backend before releasing")
 	default:
-		return errors.New("could not auto-detect kind — pass --kind=go|cask|formula")
+		return errors.New("could not auto-detect kind — pass --kind=go|swift-cask|cask|formula|vps")
 	}
 }
 

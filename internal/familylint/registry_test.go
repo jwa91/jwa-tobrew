@@ -24,10 +24,10 @@ func validRule() familylint.Rule {
 // a rule; TestExpectedRulesRegistered enforces it on every test run.
 var expectedRuleIDs = []string{
 	"F-cmd-001", "F-cmd-002", "F-cmd-003", "F-cmd-004", "F-cmd-005", "F-cmd-006",
-	"F-io-001", "F-io-002", "F-io-003", "F-io-004", "F-io-005", "F-io-006", "F-io-007", "F-io-008",
+	"F-io-001", "F-io-003", "F-io-005", "F-io-006", "F-io-007", "F-io-008",
 	"F-repo-001", "F-repo-002", "F-repo-003", "F-repo-004", "F-repo-005", "F-repo-006",
 	"F-repo-007", "F-repo-008", "F-repo-009", "F-repo-010", "F-repo-011", "F-repo-012",
-	"F-repo-013", "F-repo-014",
+	"F-repo-013", "F-repo-014", "F-repo-015",
 	"F-cfg-001", "F-cfg-002", "F-cfg-003", "F-cfg-004", "F-cfg-005", "F-cfg-006",
 	"F-cfg-007", "F-cfg-008", "F-cfg-009", "F-cfg-010", "F-cfg-011", "F-cfg-012",
 	"F-cfg-020", "F-cfg-021", "F-cfg-022", "F-cfg-023",
@@ -92,7 +92,6 @@ func TestRulesByLayer(t *testing.T) {
 		familylint.LayerCmd, familylint.LayerIO, familylint.LayerRepo,
 		familylint.LayerCfg, familylint.LayerVer,
 	} {
-		layer := layer // capture
 		t.Run(string(layer), func(t *testing.T) {
 			t.Parallel()
 			rules := familylint.RulesByLayer(layer)
@@ -106,6 +105,63 @@ func TestRulesByLayer(t *testing.T) {
 				}
 				if !strings.HasPrefix(r.ID, prefix) {
 					t.Errorf("rule %s in layer-%q slice but ID doesn't start with %s", r.ID, layer, prefix)
+				}
+			}
+		})
+	}
+}
+
+func TestRulesForKind(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		kind familylint.RepoKind
+		want map[string]bool
+	}{
+		{
+			name: "go cli includes release policy pack",
+			kind: familylint.RepoKindGoCLI,
+			want: map[string]bool{
+				"F-repo-001": true,
+				"F-cfg-001":  true,
+				"F-cfg-030":  true,
+				"F-cfg-040":  true,
+				"F-ver-004":  true,
+			},
+		},
+		{
+			name: "swift cask excludes go release rules",
+			kind: familylint.RepoKindSwiftCask,
+			want: map[string]bool{
+				"F-cmd-001":  true,
+				"F-repo-001": false,
+				"F-cfg-001":  false,
+				"F-cfg-040":  true,
+				"F-ver-004":  false,
+			},
+		},
+		{
+			name: "vps keeps shared repo hygiene only",
+			kind: familylint.RepoKindVPS,
+			want: map[string]bool{
+				"F-cmd-001":  true,
+				"F-repo-001": false,
+				"F-repo-004": true,
+				"F-cfg-030":  false,
+				"F-ver-001":  true,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := map[string]bool{}
+			for _, rule := range familylint.RulesForKind(tt.kind) {
+				got[rule.ID] = true
+			}
+			for id, want := range tt.want {
+				if got[id] != want {
+					t.Errorf("RulesForKind(%q) contains %s = %v, want %v", tt.kind, id, got[id], want)
 				}
 			}
 		})
@@ -146,7 +202,6 @@ func TestRegistryRegisterPanics(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt // capture for parallel
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			reg := familylint.NewRegistry()

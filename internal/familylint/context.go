@@ -22,6 +22,10 @@ type Context struct {
 	// BinaryPath is an absolute path to a built binary. Empty when not set;
 	// rules in LayerCmd Skip rather than fail.
 	BinaryPath string
+	// RepoKind selects the active familylint rule pack.
+	RepoKind RepoKind
+	// DotfilesBrewfile points to the machine-level Brewfile when available.
+	DotfilesBrewfile string
 
 	// Cached parsed artefacts. nil + nil err means "not yet read".
 	makefile      []byte
@@ -65,6 +69,16 @@ func WithRepoName(name string) Option {
 	return func(c *Context) { c.RepoName = name }
 }
 
+// WithRepoKind overrides automatic repo-kind detection.
+func WithRepoKind(kind RepoKind) Option {
+	return func(c *Context) { c.RepoKind = kind }
+}
+
+// WithDotfilesBrewfile overrides the machine Brewfile path used by family-order checks.
+func WithDotfilesBrewfile(path string) Option {
+	return func(c *Context) { c.DotfilesBrewfile = path }
+}
+
 // NewContext builds a Context rooted at repoRoot. The path must exist
 // as a directory. Apply zero or more Options to configure further.
 func NewContext(repoRoot string, opts ...Option) (*Context, error) {
@@ -80,13 +94,48 @@ func NewContext(repoRoot string, opts ...Option) (*Context, error) {
 		return nil, fmt.Errorf("repo root is not a directory: %s", abs)
 	}
 	c := &Context{
-		RepoRoot: abs,
-		RepoName: filepath.Base(abs),
+		RepoRoot:         abs,
+		RepoName:         filepath.Base(abs),
+		RepoKind:         detectRepoKind(abs),
+		DotfilesBrewfile: defaultDotfilesBrewfile(),
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c, nil
+}
+
+func detectRepoKind(root string) RepoKind {
+	switch {
+	case fileExists(filepath.Join(root, "go.mod")):
+		return RepoKindGoCLI
+	case globExists(filepath.Join(root, "*.xcodeproj")), globExists(filepath.Join(root, "*.xcworkspace")), fileExists(filepath.Join(root, "Package.swift")):
+		return RepoKindSwiftCask
+	case fileExists(filepath.Join(root, "scripts", "release.sh")):
+		return RepoKindCask
+	case fileExists(filepath.Join(root, "docker-compose.yml")), fileExists(filepath.Join(root, "compose.yml")):
+		return RepoKindVPS
+	default:
+		return RepoKindGeneric
+	}
+}
+
+func defaultDotfilesBrewfile() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, "dotfiles", "Brewfile")
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func globExists(pattern string) bool {
+	matches, err := filepath.Glob(pattern)
+	return err == nil && len(matches) > 0
 }
 
 // FileExists reports whether a path relative to RepoRoot exists.

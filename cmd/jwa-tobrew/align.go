@@ -293,7 +293,7 @@ func findSecurityGroundRulesDupes(root string) []string {
 	var hits []string
 	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if info.IsDir() {
 			base := info.Name()

@@ -1,6 +1,36 @@
 package familylint
 
-import "sort"
+import (
+	"slices"
+	"sort"
+	"strings"
+)
+
+// RepoKind identifies which convention pack applies to a repository.
+// The zero value means "auto/unset"; callers should use Context.RepoKind
+// after NewContext has detected the repository shape.
+type RepoKind string
+
+const (
+	RepoKindGoCLI     RepoKind = "go-cli"
+	RepoKindSwiftCask RepoKind = "swift-cask"
+	RepoKindCask      RepoKind = "cask"
+	RepoKindFormula   RepoKind = "formula"
+	RepoKindGeneric   RepoKind = "generic"
+	RepoKindVPS       RepoKind = "vps"
+)
+
+var (
+	allRepoKinds = []RepoKind{
+		RepoKindGoCLI,
+		RepoKindSwiftCask,
+		RepoKindCask,
+		RepoKindFormula,
+		RepoKindGeneric,
+		RepoKindVPS,
+	}
+	goCLIPack = []RepoKind{RepoKindGoCLI}
+)
 
 // Layer is the taxonomy bucket a rule belongs to. Empty-string is invalid;
 // every Rule must declare a non-empty Layer.
@@ -77,15 +107,50 @@ type Rule struct {
 	Severity Severity
 	// Description is the one-line "what this rule checks" statement.
 	Description string
+	// Kinds narrows the rule to specific repo kinds. Empty means every kind.
+	Kinds []RepoKind
 	// Check runs the validator against the given Context.
 	Check func(c *Context) Result
+}
+
+// AppliesToKind reports whether this rule participates in kind's pack.
+func (r Rule) AppliesToKind(kind RepoKind) bool {
+	if kind == "" {
+		kind = RepoKindGeneric
+	}
+	if len(r.Kinds) > 0 {
+		return slices.Contains(r.Kinds, kind)
+	}
+	for _, k := range defaultKindsForRuleID(r.ID) {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultKindsForRuleID(id string) []RepoKind {
+	switch {
+	case strings.HasPrefix(id, "F-cmd-"), strings.HasPrefix(id, "F-io-"):
+		return allRepoKinds
+	case id == "F-repo-001", id == "F-repo-002", id == "F-repo-003", id == "F-repo-007", id == "F-repo-011", id == "F-repo-012":
+		return goCLIPack
+	case id == "F-cfg-001", id == "F-cfg-002", id == "F-cfg-003", id == "F-cfg-004", id == "F-cfg-005", id == "F-cfg-006", id == "F-cfg-007", id == "F-cfg-008", id == "F-cfg-009", id == "F-cfg-010", id == "F-cfg-011", id == "F-cfg-012":
+		return goCLIPack
+	case id == "F-cfg-030", id == "F-cfg-031", id == "F-cfg-032", id == "F-cfg-033":
+		return goCLIPack
+	case id == "F-ver-002", id == "F-ver-004", id == "F-ver-005":
+		return goCLIPack
+	default:
+		return allRepoKinds
+	}
 }
 
 // Registry holds a set of Rules. Rules are unique by ID. The zero value
 // is NOT usable; construct with NewRegistry().
 type Registry struct {
-	rules    []Rule
-	byID     map[string]struct{}
+	rules []Rule
+	byID  map[string]struct{}
 }
 
 // NewRegistry returns an empty Registry.
@@ -167,6 +232,18 @@ func Register(rule Rule) { DefaultRegistry.Register(rule) }
 
 // Rules returns every rule in DefaultRegistry, sorted by ID.
 func Rules() []Rule { return DefaultRegistry.Rules() }
+
+// RulesForKind returns every rule that applies to kind, sorted by ID.
+func RulesForKind(kind RepoKind) []Rule {
+	all := Rules()
+	out := make([]Rule, 0, len(all))
+	for _, rule := range all {
+		if rule.AppliesToKind(kind) {
+			out = append(out, rule)
+		}
+	}
+	return out
+}
 
 // RulesByLayer returns rules in DefaultRegistry filtered by Layer.
 func RulesByLayer(layer Layer) []Rule { return DefaultRegistry.ByLayer(layer) }

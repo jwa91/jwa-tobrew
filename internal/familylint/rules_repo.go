@@ -13,12 +13,11 @@ func init() {
 		ID:          "F-repo-001",
 		Layer:       LayerRepo,
 		Severity:    SeverityFail,
-		Description: `cmd/<repo-name>/main.go exists`,
+		Description: `Go CLI main entrypoint exists at cmd/<repo> or tools/<repo>`,
 		Check: func(c *Context) Result {
-			rel := filepath.Join("cmd", c.RepoName, "main.go")
-			if !c.FileExists(rel) {
-				return Fail("missing "+rel,
-					"create the canonical Go-CLI layout: cmd/"+c.RepoName+"/main.go with package main")
+			if _, ok := goMainPath(c); !ok {
+				return Fail("missing Go CLI main entrypoint",
+					"create cmd/"+c.RepoName+"/main.go for a single-purpose CLI, or tools/"+c.RepoName+"/main.go when the CLI is a tool surface inside a broader repo")
 			}
 			return Pass()
 		},
@@ -31,8 +30,12 @@ func init() {
 		Description: `Version vars exposed either via internal/version package or package main vars (consistent within a repo)`,
 		Check: func(c *Context) Result {
 			hasInternal := c.FileExists("internal/version/version.go")
-			mainPath := filepath.Join("cmd", c.RepoName, "main.go")
-			mainBody, err := c.ReadFile(mainPath)
+			mainPath, hasMainPath := goMainPath(c)
+			var mainBody []byte
+			var err error
+			if hasMainPath {
+				mainBody, err = c.ReadFile(mainPath)
+			}
 			hasMainVars := false
 			if err == nil {
 				body := string(mainBody)
@@ -107,17 +110,17 @@ func init() {
 		ID:          "F-repo-005",
 		Layer:       LayerRepo,
 		Severity:    SeverityFail,
-		Description: `README.md present with "brew install jwa91/tap/<name>" line`,
+		Description: `README.md present with "brew install --cask jwa91/tap/<name>" line`,
 		Check: func(c *Context) Result {
 			body, err := c.README()
 			if err != nil {
 				return Fail("README.md missing: "+err.Error(),
-					"add README.md including a `brew install jwa91/tap/"+c.RepoName+"` example")
+					"add README.md including a `brew install --cask jwa91/tap/"+c.RepoName+"` example")
 			}
-			install := "brew install jwa91/tap/" + c.RepoName
+			install := "brew install --cask jwa91/tap/" + c.RepoName
 			if !strings.Contains(string(body), install) {
 				return Fail("README has no "+install+" line",
-					"add the canonical install line so the README documents the brew path")
+					"add the canonical cask install line so the README documents the brew path")
 			}
 			return Pass()
 		},
@@ -191,7 +194,7 @@ func init() {
 		ID:          "F-repo-009",
 		Layer:       LayerRepo,
 		Severity:    SeverityFail,
-		Description: `.env.template present iff .goreleaser.yaml references op:// URIs`,
+		Description: `.env.template present when release config needs 1Password-backed env`,
 		Check: func(c *Context) Result {
 			grBody, err := c.ReadFile(".goreleaser.yaml")
 			if err != nil {
@@ -200,14 +203,23 @@ func init() {
 					return Skip("no .goreleaser.yaml")
 				}
 			}
-			needsTemplate := strings.Contains(string(grBody), "op://")
+			gr := string(grBody)
+			needsTemplate := strings.Contains(gr, "op://") ||
+				strings.Contains(gr, ".Env.HOMEBREW_TAP_GITHUB_TOKEN") ||
+				strings.Contains(gr, ".Env.MACOS_SIGN_IDENTITY")
 			hasTemplate := c.FileExists(".env.template")
 			switch {
 			case needsTemplate && !hasTemplate:
-				return Fail(".goreleaser.yaml references op:// but .env.template is missing",
-					"add a .env.template enumerating each op:// reference")
-			case !needsTemplate && hasTemplate:
-				return Warn(".env.template present but .goreleaser.yaml doesn't reference op:// — is the template still needed?")
+				return Fail(".goreleaser.yaml needs release env but .env.template is missing",
+					"add a .env.template enumerating each op://-backed release variable")
+			case hasTemplate:
+				envBody, envErr := c.ReadFile(".env.template")
+				if envErr != nil {
+					return Fail(".env.template is unreadable: "+envErr.Error(), "")
+				}
+				if !strings.Contains(string(envBody), "op://") {
+					return Warn(".env.template has no op:// references — is the template still needed?")
+				}
 			}
 			return Pass()
 		},
@@ -217,14 +229,13 @@ func init() {
 		ID:          "F-repo-010",
 		Layer:       LayerRepo,
 		Severity:    SeverityFail,
-		Description: `.gitignore blocks .env, .env.local, .env.*.local`,
+		Description: `.gitignore blocks .env variants while allowing .env.template`,
 		Check: func(c *Context) Result {
 			body, err := c.Gitignore()
 			if err != nil {
 				return Fail(".gitignore missing or unreadable",
 					"add .gitignore with .env, .env.local, .env.*.local entries")
 			}
-			required := []string{".env", ".env.local", ".env.*.local"}
 			lines := strings.Split(string(body), "\n")
 			has := func(needle string) bool {
 				for _, line := range lines {
@@ -235,10 +246,18 @@ func init() {
 				return false
 			}
 			var missing []string
-			for _, r := range required {
-				if !has(r) {
-					missing = append(missing, r)
-				}
+			if !has(".env") {
+				missing = append(missing, ".env")
+			}
+			hasEnvStar := has(".env.*")
+			if !has(".env.local") && !hasEnvStar {
+				missing = append(missing, ".env.local")
+			}
+			if !has(".env.*.local") && !hasEnvStar {
+				missing = append(missing, ".env.*.local")
+			}
+			if hasEnvStar && c.FileExists(".env.template") && !has("!.env.template") {
+				missing = append(missing, "!.env.template")
 			}
 			if len(missing) > 0 {
 				return Fail(".gitignore missing entries: "+strings.Join(missing, ", "),
@@ -359,4 +378,48 @@ func init() {
 			return Pass()
 		},
 	})
+
+	Register(Rule{
+		ID:          "F-repo-015",
+		Layer:       LayerRepo,
+		Severity:    SeverityFail,
+		Description: `dotfiles Brewfile installs personal tap casks in bootstrap order`,
+		Check: func(c *Context) Result {
+			if c.DotfilesBrewfile == "" {
+				return Skip("no dotfiles Brewfile configured")
+			}
+			body, err := os.ReadFile(c.DotfilesBrewfile)
+			if err != nil {
+				return Skip("dotfiles Brewfile not readable: " + err.Error())
+			}
+			order := []string{`cask "jwa-harden"`, `cask "agentskills"`, `cask "prehandover"`, `cask "jwa-tobrew"`}
+			pos := -1
+			for _, marker := range order {
+				next := strings.Index(string(body), marker)
+				if next < 0 {
+					return Fail("dotfiles Brewfile missing "+marker,
+						"personal tap casks must be installed in order: jwa-harden, agentskills, prehandover, jwa-tobrew")
+				}
+				if next <= pos {
+					return Fail("dotfiles Brewfile personal tap casks are out of order",
+						"order must be: jwa-harden -> agentskills -> prehandover -> jwa-tobrew")
+				}
+				pos = next
+			}
+			return Pass()
+		},
+	})
+
+}
+
+func goMainPath(c *Context) (string, bool) {
+	for _, rel := range []string{
+		filepath.Join("cmd", c.RepoName, "main.go"),
+		filepath.Join("tools", c.RepoName, "main.go"),
+	} {
+		if c.FileExists(rel) {
+			return rel, true
+		}
+	}
+	return "", false
 }

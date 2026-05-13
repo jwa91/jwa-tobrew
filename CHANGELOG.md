@@ -12,6 +12,13 @@ for entries up to and including that version.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Gatekeeper popup on fresh cask installs**: notarization is now enforced
+  in the GoReleaser build hook (`scripts/codesign.sh`) so releases cut via
+  raw `goreleaser release --clean` are notarized as well, not only
+  `make release`.
+
 ### Changed
 
 - **`jwa-tobrew init` now delegates release skill installation to

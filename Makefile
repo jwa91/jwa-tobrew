@@ -35,13 +35,9 @@ release:
 	# GITHUB_TOKEN is the user's gh CLI token (repo scope, can create
 	# releases on this repo). HOMEBREW_TAP_GITHUB_TOKEN (op-resolved) is
 	# the fine-grained tap-writer PAT used for the Cask commit.
-	# Codesign happens inside goreleaser's builds.hooks.post.
+	# Codesign + notarization happen inside goreleaser's builds.hooks.post.
 	GITHUB_TOKEN="$$(gh auth token)" \
 	  jwa-harden run -- goreleaser release --clean
-	# Submit each codesigned darwin binary to notarytool. The published
-	# archive is byte-identical pre/post — Apple records the binary's
-	# CDHash so Gatekeeper online-check passes on first install.
-	scripts/notarize-darwin.sh jwa-tobrew $(VERSION)
 
 clean:
 	rm -rf bin dist

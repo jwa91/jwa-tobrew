@@ -54,6 +54,10 @@ jwa-tobrew doctor       # one-time sanity check
 jwa-tobrew init         # auto-detects Go / Cask / Formula
 ```
 
+`init` requires `agentskills` on PATH. It installs the project `release`
+skill from the canonical skill repo and then links the configured agent
+harness directories.
+
 Then release. The flow differs by kind on purpose — Go projects use
 GoReleaser as the entire pipeline (same command locally and in CI),
 while casks and formulas use a thin `scripts/release.sh` wrapper around

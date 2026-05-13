@@ -19,6 +19,7 @@ func runDoctor(args []string) error {
 	for _, b := range []struct{ bin, brewPkg string }{
 		{"git", "git"},
 		{"gh", "gh"},
+		{"agentskills", "jwa91/tap/agentskills"},
 	} {
 		if _, err := exec.LookPath(b.bin); err != nil {
 			fail("%s not found — `brew install %s`", b.bin, b.brewPkg)

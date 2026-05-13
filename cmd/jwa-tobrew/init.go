@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -35,6 +36,9 @@ func runInit(args []string) error {
 	}
 	if *kind == "" {
 		*kind = detectKind(cwd)
+	}
+	if err := requireAgentskills(); err != nil {
+		return err
 	}
 
 	switch *kind {
@@ -90,38 +94,60 @@ func scaffold(kind, dir, owner, repo, name, desc string, force bool) error {
 		_ = os.Chmod(releaseShPath, 0o755)
 	}
 
-	if err := writeAuxiliary(dir, data, force); err != nil {
+	if err := writeAuxiliary(dir, force); err != nil {
 		return err
 	}
 
 	switch kind {
 	case "go":
 		ok("scaffolded Go release config (.goreleaser.yaml)")
-		hint("formula will be published to %s/homebrew-tap as Formula/%s.rb", owner, name)
+		hint("cask will be published to %s/homebrew-tap as Casks/%s.rb", owner, name)
 		hint("install GoReleaser: brew install goreleaser")
-		hint("first release: op run --env-file=.env.template -- goreleaser release --clean")
+		hint("first release: jwa-harden run -- goreleaser release --clean")
 	case "cask":
 		ok("scaffolded Cask release config (scripts/release.sh)")
-		hint("usage: op run --env-file=.env.template -- ./scripts/release.sh <version> <path/to/artifact.dmg>")
+		hint("usage: jwa-harden run -- ./scripts/release.sh <version> <path/to/artifact.dmg>")
 	case "formula":
 		ok("scaffolded Formula release config (scripts/release.sh)")
-		hint("usage: op run --env-file=.env.template -- ./scripts/release.sh <version> <path/to/binary-or-tarball>")
+		hint("usage: jwa-harden run -- ./scripts/release.sh <version> <path/to/binary-or-tarball>")
 	}
 	return nil
 }
 
 // writeAuxiliary scaffolds the artifacts needed by every kind: the project's
-// .env.template (op:// references for $GITHUB_TOKEN) and a release skill so
-// future agents know how this project ships.
-func writeAuxiliary(dir string, data map[string]string, force bool) error {
+// .env.template (op:// references for $GITHUB_TOKEN), gitignore protection,
+// and the canonical release skill owned by agentskills.
+func writeAuxiliary(dir string, force bool) error {
 	if err := writeEnvTemplate(filepath.Join(dir, ".env.template"), force); err != nil {
 		return err
 	}
 	if err := ensureGitignoreEntry(filepath.Join(dir, ".gitignore"), ".env"); err != nil {
 		return err
 	}
-	if err := writeTemplate(filepath.Join(dir, ".claude", "skills", "release", "SKILL.md"), skillReleaseTmpl, data, force); err != nil {
+	if err := runAgentskills("bootstrap", "--project", dir, "--skill", "release", "--mode", "copy", "--force"); err != nil {
 		return err
+	}
+	if err := runAgentskills("link", "--project", dir, "--force"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func requireAgentskills() error {
+	if _, err := exec.LookPath("agentskills"); err != nil {
+		return errors.New("agentskills not found on PATH — install via `brew install jwa91/tap/agentskills`")
+	}
+	return nil
+}
+
+func runAgentskills(args ...string) error {
+	cmd := exec.Command("agentskills", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = os.Environ()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("agentskills %s: %w", strings.Join(args, " "), err)
 	}
 	return nil
 }
@@ -133,7 +159,7 @@ func writeEnvTemplate(path string, force bool) error {
 			return nil
 		}
 	}
-	body := `# Resolved by ` + "`" + `op run --env-file=.env.template -- <cmd>` + "`" + `.
+	body := `# Resolved by ` + "`" + `jwa-harden run -- <cmd>` + "`" + ` (delegates to op run).
 # Values are 1Password references; resolved secrets exist only in the spawned
 # process tree, never on disk. See ~/dotfiles/docs/security-ground-rules.md.
 GITHUB_TOKEN=op://Personal/GitHub Homebrew-tap writer/credential

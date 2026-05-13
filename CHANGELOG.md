@@ -12,6 +12,18 @@ for entries up to and including that version.
 
 ## [Unreleased]
 
+### Changed
+
+- **`jwa-tobrew init` now delegates release skill installation to
+  `agentskills`**. After writing release config, it runs
+  `agentskills bootstrap --skill release --mode copy --force` and
+  `agentskills link --force`, making `agentskills` a hard init
+  prerequisite.
+- **`jwa-tobrew doctor` now checks `agentskills` on PATH** with an
+  install hint for `brew install jwa91/tap/agentskills`.
+- **Generated release guidance now refers to Go CLI Casks** (`Casks/*.rb`)
+  instead of stale Formula paths.
+
 ## [0.4.2] — 2026-05-13
 
 ### Fixed

@@ -19,7 +19,7 @@ func runBump(args []string) error {
 
 	rest := fs.Args()
 	if len(rest) < 1 {
-		return errors.New("usage: brewtap bump <name> [version]")
+		return errors.New("usage: jwa-tobrew bump <name> [version]")
 	}
 	name := rest[0]
 	wantVersion := ""
@@ -42,7 +42,7 @@ func runBump(args []string) error {
 		return err
 	}
 	if n := AssetCount(body); n > 1 {
-		return fmt.Errorf("%s has %d url lines (multi-platform); jwa-tobrew can't safely bump it — the source repo's release pipeline owns this formula. Run `goreleaser release` in the source repo instead",
+		return fmt.Errorf("%s has %d url lines (multi-platform); jwa-tobrew can't safely bump it — the source repo's release pipeline owns this item. Run `goreleaser release` in the source repo instead",
 			art.RelPath(), n)
 	}
 

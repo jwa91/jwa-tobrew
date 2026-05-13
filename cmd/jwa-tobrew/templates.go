@@ -17,6 +17,3 @@ var caskRbTmpl string
 
 //go:embed templates/formula.rb.tmpl
 var formulaRbTmpl string
-
-//go:embed templates/skill-release.md.tmpl
-var skillReleaseTmpl string

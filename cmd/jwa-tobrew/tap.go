@@ -68,9 +68,8 @@ var (
 )
 
 // AssetCount returns how many `url "..."` lines a tap file contains.
-// Single-asset items (every cask, simple formulas) return 1; multi-platform
-// formulas (typically published directly by a source repo's GoReleaser
-// `brews:` block) return more than one.
+// Single-asset items (simple casks/formulas) return 1; multi-platform entries
+// published directly by a source repo's GoReleaser pipeline return more than one.
 func AssetCount(body []byte) int {
 	return len(urlCountRE.FindAllIndex(body, -1))
 }

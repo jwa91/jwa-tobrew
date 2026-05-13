@@ -94,17 +94,45 @@ func detectAlignMode(dir string) string {
 	return ""
 }
 
-// skillSymlinkFindings is the convention shared by tap and project repos:
-// skills live in .agents/skills/<name>/, and .claude/skills/<name> is a
-// symlink to ../../.agents/skills/<name>. This lets non-Claude agent
-// runtimes (codex, cursor, etc.) symlink the same source from their own
-// dirs without duplicating the skill content.
+// skillSymlinkFindings checks the project-level skill layout. Modern projects
+// get harness links from `agentskills link`, so .claude/skills itself points to
+// ../.agents/skills. Older projects may still have per-skill links; keep
+// accepting/migrating those when .claude/skills is a real directory.
 func skillSymlinkFindings(root, name string) []alignFinding {
 	src := filepath.Join(root, ".agents", "skills", name)
+	harnessLink := filepath.Join(root, ".claude", "skills")
+	harnessTarget := filepath.Join("..", ".agents", "skills")
 	link := filepath.Join(root, ".claude", "skills", name)
 	target := filepath.Join("..", "..", ".agents", "skills", name)
 
 	srcExists := exists(src)
+	harnessInfo, harnessErr := os.Lstat(harnessLink)
+	harnessExists := harnessErr == nil
+	if srcExists && harnessExists && harnessInfo.Mode()&os.ModeSymlink != 0 {
+		current, err := os.Readlink(harnessLink)
+		if err != nil {
+			return []alignFinding{{
+				Path:   filepath.Join(".claude", "skills"),
+				Action: fmt.Sprintf("read symlink target failed: %v", err),
+			}}
+		}
+		if current == harnessTarget {
+			return nil
+		}
+	}
+	if srcExists && !harnessExists {
+		return []alignFinding{{
+			Path:   filepath.Join(".claude", "skills"),
+			Action: "create harness symlink → ../.agents/skills",
+			Apply: func() error {
+				if err := os.MkdirAll(filepath.Dir(harnessLink), 0o755); err != nil {
+					return err
+				}
+				return os.Symlink(harnessTarget, harnessLink)
+			},
+		}}
+	}
+
 	linkInfo, linkErr := os.Lstat(link)
 	linkExists := linkErr == nil
 	linkIsSymlink := linkExists && linkInfo.Mode()&os.ModeSymlink != 0

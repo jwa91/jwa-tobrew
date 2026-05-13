@@ -26,6 +26,23 @@ brew uninstall --cask jwa-tobrew
 
 ## Direct Download
 
+Use the installer script (recommended):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jwa91/jwa-tobrew/main/scripts/install.sh | sh
+jwa-tobrew version
+```
+
+Optional env overrides:
+
+```sh
+JWA_TOBREW_VERSION=0.5.0 \
+JWA_TOBREW_INSTALL_DIR="$HOME/.local/bin" \
+  curl -fsSL https://raw.githubusercontent.com/jwa91/jwa-tobrew/main/scripts/install.sh | sh
+```
+
+Manual archive install:
+
 Download the archive for your platform from the [latest release](https://github.com/jwa91/jwa-tobrew/releases/latest). Asset names use this shape:
 
 - `jwa-tobrew_<version>_darwin_arm64.tar.gz`
@@ -36,7 +53,7 @@ Download the archive for your platform from the [latest release](https://github.
 Verify and extract:
 
 ```sh
-version=0.4.4
+version=0.5.0
 asset=jwa-tobrew_${version}_linux_amd64.tar.gz
 curl -fsSLO "https://github.com/jwa91/jwa-tobrew/releases/download/v${version}/${asset}"
 curl -fsSLO "https://github.com/jwa91/jwa-tobrew/releases/download/v${version}/checksums.txt"
@@ -58,7 +75,7 @@ jwa-tobrew version
 For a pinned install:
 
 ```sh
-go install github.com/jwa91/jwa-tobrew/cmd/jwa-tobrew@v0.4.4
+go install github.com/jwa91/jwa-tobrew/cmd/jwa-tobrew@v0.5.0
 ```
 
 The Go install path builds from the module tag instead of downloading the

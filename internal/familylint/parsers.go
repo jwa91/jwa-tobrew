@@ -53,6 +53,9 @@ type GoreleaserHook struct {
 	Cmd string `yaml:"cmd"`
 }
 
+// Compile-time check: GoreleaserHook implements yaml.Unmarshaler.
+var _ yaml.Unmarshaler = (*GoreleaserHook)(nil)
+
 // UnmarshalYAML supports both scalar and mapping representations.
 func (h *GoreleaserHook) UnmarshalYAML(node *yaml.Node) error {
 	switch node.Kind {

@@ -1,152 +1,224 @@
-package familylint
+package familylint_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/jwa91/jwa-tobrew/internal/familylint"
 )
 
-// newTempRepo builds a minimal "looks like a jwa-* CLI repo" tree under
-// t.TempDir() and returns a Context rooted there. Caller adds/overwrites
-// files via writeFile.
-func newTempRepo(t *testing.T, name string) *Context {
-	t.Helper()
-	dir := filepath.Join(t.TempDir(), name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
+func TestRepoRule001CmdMainGo(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		setup  func(f *repoFixture)
+		want   familylint.Status
+	}{
+		{
+			name:   "missing main.go fails",
+			setup:  func(*repoFixture) {},
+			want:   familylint.StatusFail,
+		},
+		{
+			name: "canonical main.go passes",
+			setup: func(f *repoFixture) {
+				f.write("cmd/demo/main.go", "package main\n")
+			},
+			want: familylint.StatusPass,
+		},
 	}
-	c, err := NewContext(dir, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c
-}
-
-func writeFile(t *testing.T, c *Context, rel, body string) {
-	t.Helper()
-	abs := filepath.Join(c.RepoRoot, rel)
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(abs, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRepoRule_001_CmdMainGo(t *testing.T) {
-	c := newTempRepo(t, "demo")
-	rule := RuleByID("F-repo-001")
-
-	// Missing → fail.
-	if got := rule.Check(c).Status; got != StatusFail {
-		t.Fatalf("missing main.go: got status %d, want fail", got)
-	}
-
-	// Present at canonical path → pass.
-	writeFile(t, c, "cmd/demo/main.go", "package main\n")
-	if got := rule.Check(c).Status; got != StatusPass {
-		t.Fatalf("present main.go: got status %d, want pass", got)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newRepoFixture(t, "demo")
+			tt.setup(f)
+			if got := f.runRule("F-repo-001").Status; got != tt.want {
+				t.Errorf("status = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestRepoRule_003_GoModule(t *testing.T) {
-	c := newTempRepo(t, "demo")
-	rule := RuleByID("F-repo-003")
-
-	if got := rule.Check(c).Status; got != StatusFail {
-		t.Fatal("missing go.mod should fail")
+func TestRepoRule003GoModule(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		body  string
+		want  familylint.Status
+	}{
+		{name: "missing go.mod", body: "", want: familylint.StatusFail},
+		{name: "correct module path", body: "module github.com/jwa91/demo\n\ngo 1.23\n", want: familylint.StatusPass},
+		{name: "wrong owner", body: "module github.com/someone-else/demo\n\ngo 1.23\n", want: familylint.StatusFail},
+		{name: "wrong name", body: "module github.com/jwa91/something-else\n\ngo 1.23\n", want: familylint.StatusFail},
 	}
-
-	writeFile(t, c, "go.mod", "module github.com/jwa91/demo\n\ngo 1.23\n")
-	if got := rule.Check(c).Status; got != StatusPass {
-		t.Fatal("correct module path should pass")
-	}
-
-	writeFile(t, c, "go.mod", "module github.com/someone-else/demo\n\ngo 1.23\n")
-	if got := rule.Check(c).Status; got != StatusFail {
-		t.Fatal("wrong module path should fail")
-	}
-}
-
-func TestRepoRule_010_GitignoreEnvBlock(t *testing.T) {
-	c := newTempRepo(t, "demo")
-	rule := RuleByID("F-repo-010")
-
-	writeFile(t, c, ".gitignore", "bin/\n")
-	if got := rule.Check(c).Status; got != StatusFail {
-		t.Fatal("missing .env block should fail")
-	}
-
-	// Invalidate the lazy cache before re-checking the second body.
-	c.gitignore, c.gitignoreErr = nil, nil
-	writeFile(t, c, ".gitignore", "bin/\n.env\n.env.local\n.env.*.local\n")
-	if got := rule.Check(c).Status; got != StatusPass {
-		t.Fatal("complete .env block should pass")
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newRepoFixture(t, "demo")
+			if tt.body != "" {
+				f.write("go.mod", tt.body)
+			}
+			if got := f.runRule("F-repo-003").Status; got != tt.want {
+				t.Errorf("status = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestCfgRule_007_NoBrews(t *testing.T) {
-	c := newTempRepo(t, "demo")
-	rule := RuleByID("F-cfg-007")
-
-	// No .goreleaser.yaml → skip.
-	if got := rule.Check(c).Status; got != StatusSkip {
-		t.Fatalf("no goreleaser file: got status %d, want skip", got)
+func TestRepoRule010GitignoreEnvBlock(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		body string
+		want familylint.Status
+	}{
+		{name: "missing .gitignore", body: "", want: familylint.StatusFail},
+		{name: "incomplete block", body: "bin/\n", want: familylint.StatusFail},
+		{name: "complete block", body: "bin/\n.env\n.env.local\n.env.*.local\n", want: familylint.StatusPass},
+		{name: "block with extra entries", body: ".DS_Store\n.env\n.env.local\n.env.*.local\nfoo\n", want: familylint.StatusPass},
 	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newRepoFixture(t, "demo")
+			if tt.body != "" {
+				f.write(".gitignore", tt.body)
+			}
+			if got := f.runRule("F-repo-010").Status; got != tt.want {
+				t.Errorf("status = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
 
-	// brews: present → fail.
-	writeFile(t, c, ".goreleaser.yaml", `
+func TestCfgRule007NoBrewsBlock(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		goreleaser string
+		want       familylint.Status
+	}{
+		{
+			name:       "no .goreleaser.yaml skips",
+			goreleaser: "",
+			want:       familylint.StatusSkip,
+		},
+		{
+			name: "brews block fails",
+			goreleaser: `
 version: 2
 project_name: demo
 brews:
   - name: demo
-`)
-	// Reset cache for the new file.
-	c.goreleaser, c.goreleaserErr = nil, nil
-	if got := rule.Check(c); got.Status != StatusFail {
-		t.Fatalf("brews present: got status %d, want fail", got.Status)
-	}
-
-	// Only homebrew_casks: → pass.
-	writeFile(t, c, ".goreleaser.yaml", `
+`,
+			want: familylint.StatusFail,
+		},
+		{
+			name: "only homebrew_casks passes",
+			goreleaser: `
 version: 2
 project_name: demo
 homebrew_casks:
   - name: demo
     directory: Casks
     binaries: [demo]
-`)
-	c.goreleaser, c.goreleaserErr = nil, nil
-	if got := rule.Check(c); got.Status != StatusPass {
-		t.Fatalf("only homebrew_casks: got status %d, want pass", got.Status)
+`,
+			want: familylint.StatusPass,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newRepoFixture(t, "demo")
+			if tt.goreleaser != "" {
+				f.write(".goreleaser.yaml", tt.goreleaser)
+			}
+			if got := f.runRule("F-cfg-007").Status; got != tt.want {
+				t.Errorf("status = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestCfgRule_010_BinariesPlural(t *testing.T) {
-	c := newTempRepo(t, "demo")
-	rule := RuleByID("F-cfg-010")
-
-	writeFile(t, c, ".goreleaser.yaml", `
+func TestCfgRule010BinariesPlural(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		goreleaser string
+		want       familylint.Status
+	}{
+		{
+			name: "singular binary fails (deprecated)",
+			goreleaser: `
 version: 2
 project_name: demo
 homebrew_casks:
   - name: demo
     binary: demo
-`)
-	c.goreleaser, c.goreleaserErr = nil, nil
-	if got := rule.Check(c); got.Status != StatusFail {
-		t.Fatalf("singular binary: should fail, got %d", got.Status)
-	}
-
-	writeFile(t, c, ".goreleaser.yaml", `
+`,
+			want: familylint.StatusFail,
+		},
+		{
+			name: "plural binaries passes",
+			goreleaser: `
 version: 2
 project_name: demo
 homebrew_casks:
   - name: demo
     binaries: [demo]
-`)
-	c.goreleaser, c.goreleaserErr = nil, nil
-	if got := rule.Check(c); got.Status != StatusPass {
-		t.Fatalf("plural binaries: should pass, got %d", got.Status)
+`,
+			want: familylint.StatusPass,
+		},
+		{
+			name: "neither key fails",
+			goreleaser: `
+version: 2
+project_name: demo
+homebrew_casks:
+  - name: demo
+`,
+			want: familylint.StatusFail,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newRepoFixture(t, "demo")
+			f.write(".goreleaser.yaml", tt.goreleaser)
+			if got := f.runRule("F-cfg-010").Status; got != tt.want {
+				t.Errorf("status = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRepoRule014NoBrewfile(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		files map[string]string
+		want  familylint.Status
+	}{
+		{name: "no Brewfile anywhere", files: nil, want: familylint.StatusPass},
+		{name: "Brewfile at root", files: map[string]string{"Brewfile": ""}, want: familylint.StatusFail},
+		{name: "Brewfile nested", files: map[string]string{"docs/Brewfile": ""}, want: familylint.StatusFail},
+		{name: "Brewfile.local", files: map[string]string{"Brewfile.local": ""}, want: familylint.StatusFail},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newRepoFixture(t, "demo")
+			for path, body := range tt.files {
+				f.write(path, body)
+			}
+			if got := f.runRule("F-repo-014").Status; got != tt.want {
+				t.Errorf("status = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

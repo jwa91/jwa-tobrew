@@ -12,38 +12,62 @@ import (
 )
 
 // Context is the per-repo state a Rule.Check inspects. Construct with
-// NewContext. All file/process helpers are lazy + cached where it makes
-// sense; calling the same getter twice is cheap.
+// NewContext + Options. All getters are lazy + cached; calling the same
+// getter twice is cheap.
 type Context struct {
 	// RepoRoot is the absolute path to the jwa-* CLI repo under inspection.
 	RepoRoot string
-	// RepoName is filepath.Base(RepoRoot) by default. Override if the
-	// repo's canonical name differs from its directory name (rare).
+	// RepoName defaults to filepath.Base(RepoRoot). Override via WithRepoName.
 	RepoName string
-	// BinaryPath is an absolute path to a built binary for this repo. When
-	// empty, rules in LayerCmd Skip rather than fail.
+	// BinaryPath is an absolute path to a built binary. Empty when not set;
+	// rules in LayerCmd Skip rather than fail.
 	BinaryPath string
 
 	// Cached parsed artefacts. nil + nil err means "not yet read".
-	makefile     []byte
-	makefileErr  error
-	readme       []byte
-	readmeErr    error
-	gitignore    []byte
-	gitignoreErr error
-	workflow     []byte
-	workflowErr  error
-	goreleaser   *Goreleaser
+	makefile      []byte
+	makefileErr   error
+	readme        []byte
+	readmeErr     error
+	gitignore     []byte
+	gitignoreErr  error
+	workflow      []byte
+	workflowErr   error
+	goreleaser    *Goreleaser
 	goreleaserErr error
-	changelog    *Changelog
-	changelogErr error
-	gitTags      []string
-	gitTagsErr   error
+	changelog     *Changelog
+	changelogErr  error
+	gitTags       []string
+	gitTagsErr    error
 }
 
-// NewContext builds a Context rooted at repoRoot. The path must exist as
-// a directory. binaryPath may be empty.
-func NewContext(repoRoot, binaryPath string) (*Context, error) {
+// Option configures a Context at construction time.
+type Option func(*Context)
+
+// WithBinary sets the path to a built binary so LayerCmd rules can
+// execute it. Resolved to an absolute path internally.
+func WithBinary(path string) Option {
+	return func(c *Context) {
+		if path == "" {
+			return
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			c.BinaryPath = path // best effort; rules will report exec errors
+			return
+		}
+		c.BinaryPath = abs
+	}
+}
+
+// WithRepoName overrides the RepoName (defaults to the directory base).
+// Use when the on-disk path doesn't match the canonical repo name.
+func WithRepoName(name string) Option {
+	return func(c *Context) { c.RepoName = name }
+}
+
+// NewContext builds a Context rooted at repoRoot. The path must exist
+// as a directory. Apply zero or more Options to configure further.
+func NewContext(repoRoot string, opts ...Option) (*Context, error) {
 	abs, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("abs %s: %w", repoRoot, err)
@@ -55,18 +79,14 @@ func NewContext(repoRoot, binaryPath string) (*Context, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("repo root is not a directory: %s", abs)
 	}
-	binAbs := ""
-	if binaryPath != "" {
-		binAbs, err = filepath.Abs(binaryPath)
-		if err != nil {
-			return nil, fmt.Errorf("abs %s: %w", binaryPath, err)
-		}
+	c := &Context{
+		RepoRoot: abs,
+		RepoName: filepath.Base(abs),
 	}
-	return &Context{
-		RepoRoot:   abs,
-		RepoName:   filepath.Base(abs),
-		BinaryPath: binAbs,
-	}, nil
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
 }
 
 // FileExists reports whether a path relative to RepoRoot exists.
@@ -89,7 +109,9 @@ func (c *Context) ReadFile(rel string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(c.RepoRoot, rel))
 }
 
-func cacheFile(path string, cached *[]byte, cachedErr *error, read func() ([]byte, error)) ([]byte, error) {
+// readOnceFn captures the lazy-load pattern for cached file accessors.
+// Returns the cached bytes after the first successful or failing read.
+func (c *Context) readOnceFn(cached *[]byte, cachedErr *error, read func() ([]byte, error)) ([]byte, error) {
 	if *cached != nil {
 		return *cached, nil
 	}
@@ -102,51 +124,51 @@ func cacheFile(path string, cached *[]byte, cachedErr *error, read func() ([]byt
 	return body, err
 }
 
-// Makefile returns the raw Makefile bytes, cached. os.ErrNotExist when absent.
+// Makefile returns Makefile bytes, cached. os.ErrNotExist when absent.
 func (c *Context) Makefile() ([]byte, error) {
-	return cacheFile("Makefile", &c.makefile, &c.makefileErr, func() ([]byte, error) {
+	return c.readOnceFn(&c.makefile, &c.makefileErr, func() ([]byte, error) {
 		return c.ReadFile("Makefile")
 	})
 }
 
 // README returns README.md bytes, cached.
 func (c *Context) README() ([]byte, error) {
-	return cacheFile("README.md", &c.readme, &c.readmeErr, func() ([]byte, error) {
+	return c.readOnceFn(&c.readme, &c.readmeErr, func() ([]byte, error) {
 		return c.ReadFile("README.md")
 	})
 }
 
 // Gitignore returns .gitignore bytes, cached.
 func (c *Context) Gitignore() ([]byte, error) {
-	return cacheFile(".gitignore", &c.gitignore, &c.gitignoreErr, func() ([]byte, error) {
+	return c.readOnceFn(&c.gitignore, &c.gitignoreErr, func() ([]byte, error) {
 		return c.ReadFile(".gitignore")
 	})
 }
 
 // ReleaseWorkflow returns .github/workflows/release.yml bytes, cached.
 func (c *Context) ReleaseWorkflow() ([]byte, error) {
-	return cacheFile("release.yml", &c.workflow, &c.workflowErr, func() ([]byte, error) {
+	return c.readOnceFn(&c.workflow, &c.workflowErr, func() ([]byte, error) {
 		return c.ReadFile(".github/workflows/release.yml")
 	})
 }
 
 // CmdOut captures one binary invocation.
 type CmdOut struct {
-	Stdout string
-	Stderr string
-	// Exit is the process exit code. -1 when ExecErr is non-nil (process
-	// didn't start cleanly — binary missing, signal, etc.).
-	Exit    int
-	ExecErr error
+	Stdout  string
+	Stderr  string
+	Exit    int   // -1 when ExecErr is non-nil
+	ExecErr error // start/signal failures; non-zero exit is in Exit, not here
 }
 
+// errNoBinary signals a Context with no configured BinaryPath.
+var errNoBinary = errors.New("no binary path configured (apply WithBinary)")
+
 // RunBinary invokes BinaryPath with args, capturing stdout/stderr/exit.
-// Returns CmdOut{ExecErr: errNoBinary} when BinaryPath is empty. Sets
-// NO_COLOR=1 in the child env so ANSI escape sequences don't confuse rule
-// pattern checks.
+// Returns ExecErr=errNoBinary when BinaryPath wasn't set. Sets NO_COLOR=1
+// in the child env so ANSI escapes don't disturb pattern checks.
 func (c *Context) RunBinary(args ...string) CmdOut {
 	if c.BinaryPath == "" {
-		return CmdOut{Exit: -1, ExecErr: errors.New("no binary path configured")}
+		return CmdOut{Exit: -1, ExecErr: errNoBinary}
 	}
 	cmd := exec.Command(c.BinaryPath, args...)
 	var stdout, stderr bytes.Buffer
@@ -155,15 +177,16 @@ func (c *Context) RunBinary(args ...string) CmdOut {
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 	err := cmd.Run()
 	out := CmdOut{Stdout: stdout.String(), Stderr: stderr.String()}
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			out.Exit = exitErr.ExitCode()
-		} else {
-			out.Exit = -1
-			out.ExecErr = err
-		}
+	if err == nil {
+		return out
 	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		out.Exit = exitErr.ExitCode()
+		return out
+	}
+	out.Exit = -1
+	out.ExecErr = err
 	return out
 }
 
@@ -179,8 +202,7 @@ func (c *Context) GitOrigin() (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
-// GitTags returns annotated/lightweight tags matching v* in
-// most-recent-first creator-date order, cached.
+// GitTags returns v* tags reachable from HEAD in most-recent-first order, cached.
 func (c *Context) GitTags() ([]string, error) {
 	if c.gitTags != nil || c.gitTagsErr != nil {
 		return c.gitTags, c.gitTagsErr
